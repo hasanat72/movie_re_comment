@@ -2,102 +2,65 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 
-def search_movie_url(movie_title):
+def get_google_reviews(movie_title):
     """
-    Searches for a movie on IMDb and retrieves its URL.
+    Searches Google for movie reviews and scrapes the snippets.
     """
-    base_url = "https://www.imdb.com/find"
-    search_query = movie_title.replace(" ", "+")
-    search_url = f"{base_url}?q={search_query}"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    search_query = f"{movie_title} movie reviews"
+    search_url = f"https://www.google.com/search?q={search_query}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    reviews_list = []
 
     try:
         response = requests.get(search_url, headers=headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        result = soup.find('a', href=lambda href: href and '/title/tt' in href)
-        if result:
-            movie_path = result.get('href')
-            return f"https://www.imdb.com{movie_path}"
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error searching for movie: {e}")
-    return None
 
-def scrape_movie_reviews(movie_url):
-    """
-    Scrapes user reviews and ratings from a given IMDb movie page URL.
-    """
-    reviews_url = f"{movie_url.split('?')[0]}reviews"
-    reviews_list = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-
-    try:
-        response = requests.get(reviews_url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # This selector targets the main container for each review
-        review_containers = soup.find_all('div', class_='lister-item-content')
+        # Google's class names can be obfuscated and change often.
+        # This selector looks for the containers that typically hold search results.
+        # We will then look for text snippets within these containers.
+        review_containers = soup.find_all('div', class_='g')
 
         for container in review_containers:
-            review_text = "N/A"
-            rating = None
+            # Try to find a snippet of text that looks like a review
+            snippet_element = container.find('div', {'data-sncf': '1'})
+            if snippet_element:
+                snippet_text = snippet_element.get_text(strip=True)
+                if len(snippet_text) > 50: # Filter out short, irrelevant text
+                    reviews_list.append(snippet_text)
 
-            review_text_element = container.find('div', class_='text')
-            if review_text_element:
-                review_text = review_text_element.get_text(strip=True)
+        # If the first selector doesn't work, try a fallback
+        if not reviews_list:
+             for container in soup.find_all("div", class_="VwiC3b"):
+                review_text = container.get_text(strip=True)
+                if len(review_text) > 50:
+                    reviews_list.append(review_text)
 
-            rating_element = container.find('span', class_='rating-other-user-rating')
-            if rating_element and rating_element.find('span'):
-                rating = float(rating_element.find('span').get_text(strip=True))
-
-            reviews_list.append({'review_text': review_text, 'rating': rating})
 
     except requests.exceptions.RequestException as e:
-        st.error(f"Error scraping reviews: {e}")
+        st.error(f"Error fetching Google search results: {e}")
+    except Exception as e:
+        st.error(f"An error occurred while parsing reviews: {e}")
+        
     return reviews_list
 
-def filter_and_display_reviews(review_list):
-    """
-    Filters and displays positive and negative reviews.
-    """
-    positive_reviews = [r['review_text'] for r in review_list if r['rating'] is not None and r['rating'] >= 7]
-    negative_reviews = [r['review_text'] for r in review_list if r['rating'] is not None and r['rating'] <= 4]
-
-    st.write("---")
-    st.header("Positive Reviews")
-    if positive_reviews:
-        for i, review in enumerate(positive_reviews[:5]):
-            st.write(f"{i+1}. {review}")
-    else:
-        st.write("No positive reviews found.")
-
-    st.write("---")
-    st.header("Negative Reviews")
-    if negative_reviews:
-        for i, review in enumerate(negative_reviews[:5]):
-            st.write(f"{i+1}. {review}")
-    else:
-        st.write("No negative reviews found.")
-
 # --- Streamlit App Interface ---
-st.title('🎬 IMDb Movie Review Scraper')
-st.write("Enter the title of a movie to see its positive and negative reviews.")
-movie_title = st.text_input('Movie Title', 'The Shawshank Redemption')
+st.title('🎬 Google Movie Review Finder')
+st.write("Enter the title of a movie to see review snippets from Google.")
+movie_title = st.text_input('Movie Title', 'Inception')
 
 if st.button('Search for Reviews'):
     if movie_title:
-        with st.spinner('Searching for the movie...'):
-            movie_url = search_movie_url(movie_title)
+        with st.spinner('Searching Google for reviews...'):
+            reviews = get_google_reviews(movie_title)
 
-        if movie_url:
-            st.success(f"Found movie page: {movie_url.split('?')[0]}")
-            with st.spinner('Scraping reviews... this may take a moment.'):
-                reviews = scrape_movie_reviews(movie_url)
-
-            if reviews:
-                filter_and_display_reviews(reviews)
-            else:
-                st.error("Could not scrape reviews. The IMDb page structure may have changed, or there might be no reviews available.")
+        if reviews:
+            st.header("Review Snippets Found on Google")
+            for i, review in enumerate(reviews[:5]): # Display up to 5 reviews
+                st.write(f"**Review {i+1}:**")
+                st.write(f"> {review}")
+                st.write("---")
         else:
-            st.error(f"Could not find a movie with the title: '{movie_title}'")
+            st.error("Could not find any review snippets on Google. Please try a different movie title.")

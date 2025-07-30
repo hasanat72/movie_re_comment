@@ -38,7 +38,7 @@ def scrape_movie_reviews(movie_url):
         soup = BeautifulSoup(response.text, 'html.parser')
 
         # This selector targets the main container for each review
-        review_containers = soup.find_all('div', class_='lister-item-content')
+        review_containers = soup.find_all('div', class_='review-container')
 
         for container in review_containers:
             review_text = "N/A"
@@ -57,7 +57,7 @@ def scrape_movie_reviews(movie_url):
     except requests.exceptions.RequestException as e:
         st.error(f"Error scraping reviews: {e}")
     return reviews_list
-
+    
 def filter_and_display_reviews(review_list):
     """
     Filters and displays positive and negative reviews.
